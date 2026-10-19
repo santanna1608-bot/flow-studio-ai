@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Music, Upload, Play, Pause, Volume2, VolumeX, Disc3, Radio, Sparkles, CheckCircle2 } from 'lucide-react';
+import { Music, Upload, Play, Pause, Volume2, VolumeX, Disc3, Radio } from 'lucide-react';
 import { SAMPLE_AUDIO_TRACKS } from '../data/initialData';
 import { masterAudioEngine } from '../utils/audioEngine';
 
@@ -103,20 +103,20 @@ export default function AudioMasterSection({
       return;
     }
 
+    if (file.size > 50 * 1024 * 1024) { onNotify('O áudio deve ter até 50 MB.', 'error'); return; }
     const newTrack = {
       id: `custom-track-${Date.now()}`,
       name: file.name.replace(/\.[^/.]+$/, ""),
       artist: 'Upload do Usuário',
       duration: 30, // fallback estimate
-      bpm: 124,
+      bpm: null,
       genre: 'Master Audio (Local)',
       type: 'custom',
       file: file
     };
 
-    masterAudioEngine.loadAudioFile(file);
     onUploadCustomTrack(newTrack);
-    onNotify(`Trilha sonora "${file.name}" carregada com sucesso!`, 'success');
+
   };
 
   const formatTime = (secs) => {
@@ -147,7 +147,7 @@ export default function AudioMasterSection({
               3. Áudio & Música Mestre (Master Soundtrack)
             </h2>
             <p className="text-xs text-slate-400">
-              Gerencie a trilha sonora base para sincronizar o ritmo dos cortes e beat-sync
+              A trilha selecionada se repete até o fim do filme, na prévia e na exportação.
             </p>
           </div>
         </div>
@@ -250,10 +250,10 @@ export default function AudioMasterSection({
               </div>
               <div className="flex items-center gap-2 text-xs font-mono">
                 <span className="px-2 py-0.5 rounded bg-orange-950/60 border border-orange-800/50 text-orange-400 text-[10px]">
-                  {currentTrack?.bpm || 128} BPM • BEAT SYNC LOCK
+                  {!currentTrack ? 'SEM TRILHA' : currentTrack.type === 'custom' ? 'ÁUDIO LOCAL' : currentTrack.bpm + ' BPM • SINTETIZADOR'}
                 </span>
                 <span className="text-slate-400 font-medium">
-                  {formatTime(currentTime)} / {formatTime(duration || currentTrack?.duration || 28)}
+                  {formatTime(currentTime)} / {formatTime(duration || 0)}
                 </span>
               </div>
             </div>
@@ -268,7 +268,7 @@ export default function AudioMasterSection({
               />
               <div className="absolute top-2 left-3 text-[10px] font-mono text-slate-500 flex items-center gap-1">
                 <Radio className="w-3 h-3 text-amber-500" />
-                <span>FFT Spectrum 48kHz / Stereo AAC</span>
+                <span>Espectro de frequências • Web Audio</span>
               </div>
             </div>
 

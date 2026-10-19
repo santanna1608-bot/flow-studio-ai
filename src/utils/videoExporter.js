@@ -1,184 +1,90 @@
-// Video Exporter using HTML5 Canvas & MediaRecorder API
-
-export async function exportUnifiedFilm({
-  scenes,
-  aspectRatio, // "16:9" or "9:16"
-  onProgress,
-  onComplete,
-  onError
-}) {
+import { drawFrame, filmDuration, locateScene, prepareVisuals } from './film.js';
+import { prepareAudioBuffer } from './audioEngine.js';
+export function chooseRecordingType(Recorder = globalThis.MediaRecorder) {
+  if (!Recorder) throw new Error('Este navegador não suporta gravação. Use Chrome ou Edge atualizado.');
+  const mimeType = ['video/mp4;codecs=avc1.42001E,mp4a.40.2', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm'].find(t => Recorder.isTypeSupported(t));
+  if (!mimeType) throw new Error('Nenhum formato de gravação compatível.');
+  return { mimeType, extension: mimeType.startsWith('video/mp4') ? 'mp4' : 'webm' };
+}
+export async function exportUnifiedFilm({ scenes, aspectRatio, currentTrack, captions, characters, accent, signal, exactExport, onProgress, onComplete, onError }) {
+  let ctx, stream, source, visuals, timer, recorder, wakeLock, abortHandler, visibilityHandler;
   try {
-    const isHorizontal = aspectRatio === "16:9";
-    const width = isHorizontal ? 1280 : 720;
-    const height = isHorizontal ? 720 : 1280;
-
-    const canvas = document.createElement("canvas");
-    canvas.width = width;
-    canvas.height = height;
-    const ctx = canvas.getContext("2d");
-
-    // Audio setup for export
-    const AudioCtx = window.AudioContext || window.webkitAudioContext;
-    const audioCtx = new AudioCtx();
-    const dest = audioCtx.createMediaStreamDestination();
-
-    // Create simple ambient audio tone for the export stream
-    const osc = audioCtx.createOscillator();
-    const gain = audioCtx.createGain();
-    osc.type = "sine";
-    osc.frequency.setValueAtTime(110, audioCtx.currentTime);
-    gain.gain.setValueAtTime(0.08, audioCtx.currentTime);
-    osc.connect(gain);
-    gain.connect(dest);
-    osc.start();
-
-    // Canvas stream
-    const canvasStream = canvas.captureStream(30); // 30 FPS
-    const combinedStream = new MediaStream([
-      ...canvasStream.getVideoTracks(),
-      ...dest.stream.getAudioTracks()
-    ]);
-
-    let mimeType = "video/webm;codecs=vp9,opus";
-    if (!MediaRecorder.isTypeSupported(mimeType)) {
-      mimeType = "video/webm";
-      if (!MediaRecorder.isTypeSupported(mimeType)) {
-        mimeType = "";
-      }
-    }
-
-    const recorder = mimeType ? new MediaRecorder(combinedStream, { mimeType }) : new MediaRecorder(combinedStream);
-    const recordedChunks = [];
-
-    recorder.ondataavailable = (e) => {
-      if (e.data && e.data.size > 0) {
-        recordedChunks.push(e.data);
-      }
-    };
-
-    recorder.start(100);
-
-    const totalDuration = scenes.reduce((acc, s) => acc + (s.duration || 5), 0);
-    let currentTime = 0;
-    const fps = 30;
-    const frameInterval = 1 / fps;
-    const totalFrames = Math.floor(Math.min(totalDuration, 20) * fps); // max 20s for fast export demo
-    let frameIndex = 0;
-
-    const drawFrame = () => {
-      if (frameIndex >= totalFrames) {
-        recorder.stop();
-        osc.stop();
-        audioCtx.close();
-
-        setTimeout(() => {
-          const blob = new Blob(recordedChunks, { type: "video/mp4" });
-          const downloadUrl = URL.createObjectURL(blob);
-          onProgress(100);
-          onComplete({ downloadUrl, blob, totalDuration });
-        }, 500);
-        return;
-      }
-
-      currentTime = (frameIndex / totalFrames) * totalDuration;
-      let sceneTimeAcc = 0;
-      let activeScene = scenes[0];
-      for (const scene of scenes) {
-        if (currentTime >= sceneTimeAcc && currentTime < sceneTimeAcc + (scene.duration || 5)) {
-          activeScene = scene;
-          break;
+    if (!scenes.length) throw new Error('Adicione ao menos uma cena.');
+    signal?.throwIfAborted();
+    const { mimeType, extension: recordedExtension } = chooseRecordingType(), canvas = document.createElement('canvas');
+    let extension = recordedExtension;
+    canvas.width = aspectRatio === '16:9' ? 1920 : 1080; canvas.height = aspectRatio === '16:9' ? 1080 : 1920;
+    if (!canvas.captureStream) throw new Error('Este navegador não permite capturar vídeo.');
+    const drawing = canvas.getContext('2d');
+    ctx = new (window.AudioContext || window.webkitAudioContext)(); await ctx.resume();
+    const dest = ctx.createMediaStreamDestination(), buffer = await prepareAudioBuffer(ctx, currentTrack);
+    visuals = await prepareVisuals(scenes, characters); signal?.throwIfAborted();
+    if (document.hidden) throw new Error('Mantenha esta aba visível durante a exportação.');
+    try { wakeLock = await navigator.wakeLock?.request('screen'); } catch { /* optional */ }
+    source = ctx.createBufferSource(); source.buffer = buffer; source.loop = true; source.connect(dest);
+    stream = canvas.captureStream(30); dest.stream.getTracks().forEach(t => stream.addTrack(t));
+    recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 8000000, audioBitsPerSecond: 192000 });
+    const duration = filmDuration(scenes), chunks = [];
+    recorder.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
+    let activeMedia, fail;
+    const stopped = new Promise((resolve, reject) => {
+      let failure;
+      fail = error => { failure = error; if (recorder.state !== 'inactive') recorder.stop(); else reject(error); };
+      recorder.onerror = () => fail(new Error('Falha no codificador de vídeo.'));
+      recorder.onstop = () => failure ? reject(failure) : resolve();
+      abortHandler = () => fail(new DOMException('Exportação cancelada.', 'AbortError'));
+      visibilityHandler = () => { if (document.hidden) fail(new Error('Exportação interrompida: mantenha a aba visível e tente novamente.')); };
+      signal?.addEventListener('abort', abortHandler, { once: true }); document.addEventListener('visibilitychange', visibilityHandler);
+    });
+    const first = locateScene(scenes, 0);
+    drawFrame(drawing, canvas.width, canvas.height, first.scene, 0, visuals.assets.get(first.scene.id), accent, captions, 0);
+    const recordingStarted = new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error('O gravador não iniciou. Tente novamente.')), 15000);
+      recorder.onstart = () => { clearTimeout(timeout); resolve(); };
+    });
+    recorder.start(250);
+    await recordingStarted;
+    signal?.throwIfAborted();
+    source.start(); const startedAt = ctx.currentTime;
+    const tick = () => {
+      try {
+        if (recorder.state === 'inactive') return;
+        const time = ctx.currentTime - startedAt;
+        if (time >= duration) { recorder.stop(); return; }
+        const { scene, localTime } = locateScene(scenes, time), media = visuals.assets.get(scene.id);
+        if (activeMedia !== media) { activeMedia?.pause?.(); activeMedia = media; }
+        if (media?.tagName === 'VIDEO') {
+          const target = Math.min(localTime, Math.max(0, media.duration - 0.04));
+          if (Math.abs(media.currentTime - target) > 0.25) media.currentTime = target;
+          if (media.paused && !media.ended) media.play().catch(() => fail(new Error('Não foi possível reproduzir um clipe durante a exportação.')));
         }
-        sceneTimeAcc += (scene.duration || 5);
-      }
-
-      // Render scene frame onto canvas
-      const progressInScene = (currentTime - sceneTimeAcc) / (activeScene.duration || 5);
-
-      // Background gradient
-      const grad = ctx.createLinearGradient(0, 0, width, height);
-      if (activeScene.shotNumber % 2 === 0) {
-        grad.addColorStop(0, "#090d16");
-        grad.addColorStop(0.5, "#1e1338");
-        grad.addColorStop(1, "#08101e");
-      } else {
-        grad.addColorStop(0, "#1c0d02");
-        grad.addColorStop(0.5, "#0b1526");
-        grad.addColorStop(1, "#120a1f");
-      }
-      ctx.fillStyle = grad;
-      ctx.fillRect(0, 0, width, height);
-
-      // Cinematic grid & camera motion simulation
-      ctx.save();
-      const zoom = 1 + progressInScene * 0.12;
-      const panX = Math.sin(progressInScene * Math.PI) * 20;
-      ctx.translate(width / 2, height / 2);
-      ctx.scale(zoom, zoom);
-      ctx.translate(-width / 2 + panX, -height / 2);
-
-      // Glowing orbs / particles
-      for (let i = 0; i < 15; i++) {
-        const px = ((i * 137) % width);
-        const py = ((i * 89 + frameIndex * 2) % height);
-        const r = 2 + (i % 4);
-        ctx.beginPath();
-        ctx.arc(px, py, r, 0, Math.PI * 2);
-        ctx.fillStyle = i % 2 === 0 ? "rgba(245, 158, 11, 0.4)" : "rgba(6, 182, 212, 0.4)";
-        ctx.fill();
-      }
-
-      // Ambient glow center
-      const radial = ctx.createRadialGradient(width / 2, height / 2, 20, width / 2, height / 2, width * 0.45);
-      radial.addColorStop(0, "rgba(245, 158, 11, 0.2)");
-      radial.addColorStop(1, "transparent");
-      ctx.fillStyle = radial;
-      ctx.fillRect(0, 0, width, height);
-
-      ctx.restore();
-
-      // Film Letterbox bars if horizontal
-      if (isHorizontal) {
-        ctx.fillStyle = "#000000";
-        ctx.fillRect(0, 0, width, 36);
-        ctx.fillRect(0, height - 36, width, 36);
-      }
-
-      // Cinematic HUD overlay
-      ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
-      ctx.font = "bold 20px 'JetBrains Mono', monospace";
-      ctx.fillText(`SCENE [0${activeScene.shotNumber || 1}] : ${activeScene.title.toUpperCase()}`, 30, isHorizontal ? 75 : 60);
-
-      ctx.font = "14px 'Plus Jakarta Sans', sans-serif";
-      ctx.fillStyle = "#f59e0b";
-      ctx.fillText(`CAM: ${activeScene.cameraMovement}`, 30, isHorizontal ? 100 : 85);
-
-      if (activeScene.characterTag) {
-        ctx.fillStyle = "#10b981";
-        ctx.fillText(`R2V REF: ${activeScene.characterTag}`, 30, isHorizontal ? 122 : 107);
-      }
-
-      // Timecode
-      const mins = Math.floor(currentTime / 60).toString().padStart(2, '0');
-      const secs = Math.floor(currentTime % 60).toString().padStart(2, '0');
-      const ms = Math.floor((currentTime % 1) * 100).toString().padStart(2, '0');
-      ctx.fillStyle = "rgba(255, 255, 255, 0.6)";
-      ctx.font = "14px 'JetBrains Mono', monospace";
-      ctx.fillText(`TC: ${mins}:${secs}:${ms} | 30 FPS MASTER`, 30, height - (isHorizontal ? 50 : 35));
-
-      // Watermark
-      ctx.fillStyle = "rgba(245, 158, 11, 0.7)";
-      ctx.fillText("FLOW STUDIO AI", width - 180, height - (isHorizontal ? 50 : 35));
-
-      frameIndex++;
-      const progressPercent = Math.round((frameIndex / totalFrames) * 100);
-      onProgress(progressPercent);
-
-      requestAnimationFrame(drawFrame);
+        drawFrame(drawing, canvas.width, canvas.height, scene, localTime, media, accent, captions, time);
+        onProgress(Math.min(94, Math.floor(time / duration * 94))); timer = setTimeout(tick, 1000 / 30);
+      } catch (error) { fail(error); }
     };
-
-    drawFrame();
-  } catch (err) {
-    console.error("Export error:", err);
-    onError(err.message || "Erro durante o processamento do vídeo");
+    tick(); await stopped;
+    if (!chunks.length) throw new Error('A gravação não produziu dados.');
+    source.stop(); source = null;
+    stream.getTracks().forEach(track => track.stop()); stream = null;
+    visuals.dispose(); visuals = null;
+    await ctx.close();
+    let blob = new Blob(chunks, { type: recorder.mimeType || mimeType });
+    if (exactExport) {
+      onProgress(95);
+      const response = await fetch('/api/export/finalize?duration=' + duration, { method: 'POST', headers: { 'Content-Type': blob.type }, body: blob, signal });
+      if (!response.ok) { const result = await response.json(); throw new Error(result.error || 'Falha na finalização do MP4.'); }
+      blob = await response.blob(); extension = 'mp4';
+    }
+    const downloadUrl = URL.createObjectURL(blob);
+    onProgress(100); onComplete({ blob, downloadUrl, extension, totalDuration: duration });
+  } catch (error) { onError(error.message || 'Falha na exportação.'); }
+  finally {
+    clearTimeout(timer); signal?.removeEventListener('abort', abortHandler);
+    if (visibilityHandler) document.removeEventListener('visibilitychange', visibilityHandler);
+    if (recorder && recorder.state !== 'inactive') recorder.stop();
+    try { source?.stop(); } catch { /* stopped */ }
+    stream?.getTracks().forEach(t => t.stop()); visuals?.dispose();
+    if (ctx && ctx.state !== 'closed') await ctx.close();
+    try { await wakeLock?.release(); } catch { /* released */ }
   }
 }

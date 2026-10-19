@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { FileText, Wand2, Plus, Trash2, Copy, ArrowUp, ArrowDown, Sparkles, Clock, Video, Camera } from 'lucide-react';
-import { SAMPLE_SCRIPTS, CAMERA_MOVEMENTS } from '../data/initialData';
+import { FileText, Wand2, Plus, Trash2, Copy, ArrowUp, ArrowDown, Clock, Video, Camera } from 'lucide-react';
+import { CAMERA_MOVEMENTS } from '../data/initialData';
 
 export default function ScriptBreakdownEditor({
   scriptText,
@@ -8,31 +8,35 @@ export default function ScriptBreakdownEditor({
   scenes,
   onUpdateScenes,
   characters,
-  onNotify
+  onNotify,
+  onProcessingChange
 }) {
   const [isProcessingBreakdown, setIsProcessingBreakdown] = useState(false);
 
-  // Load sample scripts
-  const handleLoadSample = (sample) => {
-    setScriptText(sample.text);
-    onNotify(`Roteiro de exemplo "${sample.title}" carregado!`, 'info');
-  };
-
   // Breakdown Script Algorithm
-  const handleBreakdownScript = () => {
+  const handleBreakdownScript = async () => {
     if (!scriptText.trim()) {
       onNotify('Por favor insira um roteiro ou ideia de texto para decompor em cenas.', 'error');
       return;
     }
 
-    setIsProcessingBreakdown(true);
+    if (scenes.length && !window.confirm('Substituir as cenas atuais pelo novo roteiro?')) return;
+    setIsProcessingBreakdown(true); onProcessingChange(true);
 
-    setTimeout(() => {
+    try {
       // Split text into lines / paragraphs
       const lines = scriptText
         .split(/\n+/)
         .map(l => l.trim())
-        .filter(l => l.length > 5);
+        .filter(Boolean);
+      if (lines.length > 50 || lines.some(l => l.length > 4000)) throw new Error('Use até 50 cenas com até 4.000 caracteres cada.');
+      let selections = [], semanticModel;
+      try {
+        const response = await fetch('/api/breakdown', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ lines, characters: characters.map(({ tag, name, role }) => ({ tag, name, role })), cameras: CAMERA_MOVEMENTS }) });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error);
+        selections = result.selections; semanticModel = result.model;
+      } catch { onNotify('Análise semântica indisponível. Usando divisão local por parágrafos e tags literais.', 'info'); }
 
       const newScenes = [];
       const colors = [
@@ -46,7 +50,7 @@ export default function ScriptBreakdownEditor({
 
       lines.forEach((line, index) => {
         // Detect character tag in line (e.g. @Gabriel, @Elena)
-        let detectedChar = characters[0]?.tag || '@Gabriel';
+        let detectedChar = selections[index]?.characterTag || '';
         for (const char of characters) {
           if (line.includes(char.tag)) {
             detectedChar = char.tag;
@@ -55,7 +59,7 @@ export default function ScriptBreakdownEditor({
         }
 
         // Camera movement random selection or heuristic
-        const cam = CAMERA_MOVEMENTS[index % CAMERA_MOVEMENTS.length];
+        const cam = selections[index]?.cameraMovement || CAMERA_MOVEMENTS[index % CAMERA_MOVEMENTS.length];
 
         // Clean line title
         let cleanText = line.replace(/^(Cena\s*\d+:?|Scene\s*\d+:?|Take\s*\d+:?)/i, '').trim();
@@ -69,7 +73,7 @@ export default function ScriptBreakdownEditor({
           characterTag: detectedChar,
           cameraMovement: cam,
           prompt: line,
-          duration: Math.min(8, Math.max(4, Math.round(line.split(' ').length * 0.4))), // 4s to 8s
+          duration: Math.min(8, Math.max(4, Math.round(line.split(/\s+/).length * 0.4 / 2) * 2)), // 4s to 8s
           status: 'idle',
           progress: 0,
           thumbnailColor: colors[index % colors.length],
@@ -79,21 +83,22 @@ export default function ScriptBreakdownEditor({
 
       onUpdateScenes(newScenes);
       setIsProcessingBreakdown(false);
-      onNotify(`Roteiro decomposto com sucesso em ${newScenes.length} cenas individuais!`, 'success');
-    }, 800);
+      onNotify(`${newScenes.length} cenas criadas. ${semanticModel ? 'Análise auxiliar: ' + semanticModel : 'Divisão local por parágrafos.'}`, 'success');
+    } catch (error) { onNotify(error.message, 'error'); }
+    finally { setIsProcessingBreakdown(false); onProcessingChange(false); }
   };
 
   // Add individual scene
   const handleAddScene = () => {
     const nextNumber = scenes.length + 1;
     const newScene = {
-      id: `scene-${Date.now()}`,
+      id: crypto.randomUUID(),
       shotNumber: nextNumber,
-      title: `Tomada ${nextNumber}`,
-      characterTag: characters[0]?.tag || '@Gabriel',
-      cameraMovement: CAMERA_MOVEMENTS[0],
-      prompt: `@Gabriel caminha lentamente com expressão dramática sob iluminação cinematográfica.`,
-      duration: 5,
+      title: '',
+      characterTag: '',
+      cameraMovement: '',
+      prompt: '',
+      duration: 8,
       status: 'idle',
       progress: 0,
       thumbnailColor: 'from-amber-950 via-zinc-900 to-slate-900',
@@ -106,10 +111,6 @@ export default function ScriptBreakdownEditor({
 
   // Delete scene
   const handleDeleteScene = (id) => {
-    if (scenes.length <= 1) {
-      onNotify('O projeto deve ter ao menos 1 cena.', 'error');
-      return;
-    }
     const filtered = scenes.filter(s => s.id !== id);
     // Renumber
     const renumbered = filtered.map((s, idx) => ({ ...s, shotNumber: idx + 1 }));
@@ -149,7 +150,7 @@ export default function ScriptBreakdownEditor({
   // Update specific field in a scene
   const handleSceneFieldChange = (id, field, value) => {
     onUpdateScenes(
-      scenes.map(s => (s.id === id ? { ...s, [field]: value } : s))
+      scenes.map(s => (s.id === id ? { ...s, [field]: value, ...(['prompt', 'characterTag', 'cameraMovement'].includes(field) ? { operationName: null, needsRegeneration: !!s.generatedVideoUrl } : {}) } : s))
     );
   };
 
@@ -168,7 +169,7 @@ export default function ScriptBreakdownEditor({
               4. Editor de Roteiro & Quebra de Cenas (Breakdown Script)
             </h2>
             <p className="text-xs text-slate-400">
-              Cole o texto e decomponha em tomadas cinematográficas de até 10 segundos
+              Cole o texto e decomponha em cenas de até 8 segundos; um parágrafo por cena
             </p>
           </div>
         </div>
@@ -190,26 +191,14 @@ export default function ScriptBreakdownEditor({
                 Texto do Roteiro / Letra / Ideia de Vídeo:
               </label>
 
-              {/* Quick load presets */}
-              <div className="flex items-center gap-1.5">
-                <span className="text-[10px] text-slate-500">Exemplos:</span>
-                {SAMPLE_SCRIPTS.map((sample) => (
-                  <button
-                    key={sample.id}
-                    type="button"
-                    onClick={() => handleLoadSample(sample)}
-                    className="text-[10px] text-amber-400/90 hover:text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 px-1.5 py-0.5 rounded border border-amber-500/30 transition-colors"
-                  >
-                    {sample.title.split(' ')[0]}
-                  </button>
-                ))}
-              </div>
+
             </div>
 
             <textarea
               value={scriptText}
               onChange={(e) => setScriptText(e.target.value)}
-              placeholder="Cole aqui seu roteiro, letra musical ou prompts separados por linhas. Use tags como @Gabriel ou @Elena para invocar personagens com consistência R2V..."
+              aria-label="Seu roteiro ou prompts"
+              placeholder="Escreva seus prompts ou cole seu roteiro. Separe as cenas por parágrafos."
               rows={8}
               className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs text-slate-200 outline-none focus:border-amber-500 transition-colors resize-none leading-relaxed font-mono"
             />
@@ -223,7 +212,7 @@ export default function ScriptBreakdownEditor({
             className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 hover:from-amber-400 hover:to-orange-500 text-black font-extrabold text-xs uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg shadow-amber-500/20 transition-all active:scale-[0.99] disabled:opacity-50 cursor-pointer"
           >
             <Wand2 className={`w-4 h-4 ${isProcessingBreakdown ? 'animate-spin' : ''}`} />
-            <span>{isProcessingBreakdown ? 'Analisando Roteiro & Gerando Cenas...' : 'Breakdown Script (Gerar Cenas)'}</span>
+            <span>{isProcessingBreakdown ? 'Organizando cenas…' : 'Breakdown Script (Gerar Cenas)'}</span>
           </button>
         </div>
 
@@ -260,6 +249,8 @@ export default function ScriptBreakdownEditor({
                     </span>
                     <input
                       type="text"
+                      placeholder="Título da tomada"
+                      aria-label={"Título da tomada " + scene.shotNumber}
                       value={scene.title}
                       onChange={(e) => handleSceneFieldChange(scene.id, 'title', e.target.value)}
                       className="bg-transparent text-xs font-bold text-white border-b border-transparent hover:border-slate-700 focus:border-amber-500 outline-none w-48 truncate"
@@ -339,10 +330,11 @@ export default function ScriptBreakdownEditor({
                   <div className="flex items-center gap-1.5 bg-slate-950/60 p-1.5 rounded-lg border border-slate-800/80 truncate">
                     <Camera className="w-3 h-3 text-amber-400 shrink-0" />
                     <select
-                      value={scene.cameraMovement || CAMERA_MOVEMENTS[0]}
+                      value={scene.cameraMovement || ''}
                       onChange={(e) => handleSceneFieldChange(scene.id, 'cameraMovement', e.target.value)}
                       className="bg-transparent text-slate-300 text-xs outline-none cursor-pointer w-full truncate"
                     >
+                      <option value="" className="bg-slate-900">Escolha uma câmera (opcional)</option>
                       {CAMERA_MOVEMENTS.map(m => (
                         <option key={m} value={m} className="bg-slate-900 text-white">
                           {m}
@@ -356,11 +348,12 @@ export default function ScriptBreakdownEditor({
                     <span className="text-[10px] text-slate-400">Duração:</span>
                     <input
                       type="range"
-                      min="3"
-                      max="10"
-                      step="1"
-                      value={scene.duration || 5}
-                      onChange={(e) => handleSceneFieldChange(scene.id, 'duration', parseInt(e.target.value))}
+                      aria-label={'Duração da cena ' + scene.shotNumber}
+                      min="1"
+                      max={Math.max(1, scene.sourceDuration || (scene.generatedVideoUrl || scene.videoFile ? scene.duration : 60))}
+                      step="0.1"
+                      value={scene.duration || 8}
+                      onChange={(e) => handleSceneFieldChange(scene.id, 'duration', parseFloat(e.target.value))}
                       className="w-16 h-1 bg-slate-800 rounded-lg cursor-pointer accent-amber-500"
                     />
                     <span className="font-mono text-xs font-bold text-amber-400 min-w-[20px] text-right">

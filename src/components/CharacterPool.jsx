@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { Users, Upload, Plus, Trash2, CheckCircle2, ShieldCheck, Tag, Sparkles, Image as ImageIcon } from 'lucide-react';
+import { Users, Upload, Plus, Trash2, CheckCircle2, ShieldCheck, Sparkles } from 'lucide-react';
 
 export default function CharacterPool({
   characters,
@@ -9,7 +9,7 @@ export default function CharacterPool({
   onNotify
 }) {
   const [isAddingNew, setIsAddingNew] = useState(false);
-  const [editingCharId, setEditingCharId] = useState(null);
+
 
   // Form states for new/edit
   const [formTag, setFormTag] = useState('');
@@ -22,12 +22,12 @@ export default function CharacterPool({
   const activeCharUploadIdRef = useRef(null);
 
   const startAddNew = () => {
-    setFormTag(`@Personagem_${characters.length + 1}`);
+    setFormTag('');
     setFormName('');
-    setFormRole('Personagem Coadjuvante');
-    setFormOutfit('Roupa padrão consistente, traços faciais definidos, iluminação 35mm');
-    setFormAvatarUrl('https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=300&auto=format&fit=crop&q=80');
-    setEditingCharId(null);
+    setFormRole('');
+    setFormOutfit('');
+    setFormAvatarUrl('');
+
     setIsAddingNew(true);
   };
 
@@ -38,20 +38,21 @@ export default function CharacterPool({
       return;
     }
 
+    if (characters.some(c => c.tag.toLowerCase() === formTag.trim().toLowerCase())) { onNotify('Já existe um personagem com essa tag.', 'error'); return; }
     const newChar = {
       id: `char-${Date.now()}`,
       tag: formTag.trim(),
       name: formName || formTag.replace('@', ''),
       role: formRole,
       outfitPrompt: formOutfit,
-      avatarUrl: formAvatarUrl || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=300&auto=format&fit=crop&q=80',
+      avatarUrl: formAvatarUrl,
       referenceStatus: 'Ativo (R2V Vinculado)',
       consistencyWeight: 0.90
     };
 
     onAddCharacter(newChar);
     setIsAddingNew(false);
-    onNotify(`Personagem ${newChar.tag} adicionado ao pool com consistência R2V!`, 'success');
+    onNotify(`Personagem ${newChar.tag} adicionado ao pool com referência visual!`, 'success');
   };
 
   const handleFileUpload = (e, charId) => {
@@ -63,7 +64,9 @@ export default function CharacterPool({
       return;
     }
 
+    if (file.size > 5 * 1024 * 1024 || !['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) { onNotify('Use PNG, JPEG ou WebP de até 5 MB.', 'error'); return; }
     const reader = new FileReader();
+    reader.onerror = () => onNotify('Não foi possível ler a imagem.', 'error');
     reader.onload = (event) => {
       const dataUrl = event.target?.result;
       if (charId) {
@@ -106,7 +109,7 @@ export default function CharacterPool({
               2. Character Pool (Consistência Visual R2V)
             </h2>
             <p className="text-xs text-slate-400">
-              Reference-to-Video: Mantenha rostos, roupas e traços idênticos em todas as cenas geradas
+              Cadastre os personagens. Imagens PNG, JPEG e WebP enviadas por upload podem acompanhar os pedidos ao Veo.
             </p>
           </div>
         </div>
@@ -132,8 +135,9 @@ export default function CharacterPool({
               {/* Reference Image with Overlay Hover */}
               <div className="relative w-16 h-16 rounded-xl overflow-hidden shrink-0 border border-slate-700 bg-slate-950 group/avatar">
                 <img
-                  src={char.avatarUrl}
+                  src={char.avatarUrl || undefined}
                   alt={char.name}
+                  hidden={!char.avatarUrl}
                   className="w-full h-full object-cover group-hover/avatar:scale-110 transition-transform duration-300"
                 />
                 {/* Upload Hover Button */}
@@ -191,7 +195,7 @@ export default function CharacterPool({
 
               <div className="flex items-center gap-1 text-[10px] text-emerald-400 font-medium">
                 <CheckCircle2 className="w-3 h-3 shrink-0" />
-                <span className="truncate">R2V Travado (92%)</span>
+                <span className="truncate">Referência cadastrada</span>
               </div>
             </div>
           </div>
@@ -276,7 +280,7 @@ export default function CharacterPool({
                 </label>
                 <div className="flex gap-2">
                   <input
-                    type="url"
+                    type="text"
                     value={formAvatarUrl}
                     onChange={(e) => setFormAvatarUrl(e.target.value)}
                     placeholder="https://..."

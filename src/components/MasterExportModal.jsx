@@ -1,219 +1,86 @@
-import React, { useState } from 'react';
-import { Download, CheckCircle2, Film, Music, ShieldCheck, Sparkles, X, FileVideo, HardDrive } from 'lucide-react';
-import confetti from 'canvas-confetti';
-import { exportUnifiedFilm } from '../utils/videoExporter';
+import { useEffect, useRef, useState } from 'react';
+import { Download, X } from 'lucide-react';
+import { chooseRecordingType, exportUnifiedFilm } from '../utils/videoExporter';
+import { filmDuration } from '../utils/film';
 
-export default function MasterExportModal({
-  isOpen,
-  onClose,
-  projectName,
-  scenes,
-  aspectRatio,
-  currentTrack,
-  onNotify
-}) {
-  const [isExporting, setIsExporting] = useState(false);
-  const [exportProgress, setExportProgress] = useState(0);
-  const [downloadReadyUrl, setDownloadReadyUrl] = useState(null);
-
-  if (!isOpen) return null;
-
-  const totalDuration = scenes.reduce((acc, s) => acc + (s.duration || 5), 0);
-  const readyScenesCount = scenes.filter(s => s.status === 'ready').length;
-  const resolutionText = aspectRatio === '16:9' ? '1920 × 1080 (Full HD Widescreen)' : '1080 × 1920 (Full HD Vertical Reels)';
-  const estimatedFileSize = Math.round(totalDuration * 1.85); // approx MB
-
-  const handleStartExport = () => {
-    setIsExporting(true);
-    setExportProgress(5);
-    setDownloadReadyUrl(null);
-
-    exportUnifiedFilm({
-      scenes,
-      aspectRatio,
-      onProgress: (prog) => {
-        setExportProgress(prog);
-      },
-      onComplete: ({ downloadUrl, blob, totalDuration }) => {
-        setIsExporting(false);
-        setDownloadReadyUrl(downloadUrl);
-
-        // Confetti celebration
-        try {
-          confetti({
-            particleCount: 120,
-            spread: 70,
-            origin: { y: 0.6 }
-          });
-        } catch (e) {
-          // fallback
-        }
-
-        // Auto trigger download
-        const a = document.createElement('a');
-        a.href = downloadUrl;
-        a.download = `${projectName.replace(/\s+/g, '_')}_MASTER_${aspectRatio.replace(':', 'x')}.mp4`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-
-        onNotify('Filme Master renderizado e download iniciado com sucesso!', 'success');
-      },
-      onError: (errMsg) => {
-        setIsExporting(false);
-        onNotify(`Falha na exportação: ${errMsg}`, 'error');
+export default function MasterExportModal({ isOpen, onClose, projectName, scenes, aspectRatio, currentTrack, filmTrack, captions, characters, accent, onBusy, onNotify }) {
+  const [exporting, setExporting] = useState(false), [progress, setProgress] = useState(0), [download, setDownload] = useState(null), [error, setError] = useState('');
+  const abort = useRef(null), downloadRef = useRef(null), closeButton = useRef(null);
+  const [exactExport, setExactExport] = useState(null);
+  useEffect(() => {
+    const request = new AbortController();
+    fetch('/api/config', { signal: request.signal }).then(r => r.json()).then(config => setExactExport(!!config.exactExport)).catch(() => setExactExport(false));
+    return () => request.abort();
+  }, []);
+  useEffect(() => () => { abort.current?.abort(); if (downloadRef.current) URL.revokeObjectURL(downloadRef.current); }, []);
+  useEffect(() => {
+    if (!isOpen) return;
+    const previous = document.activeElement;
+    closeButton.current?.focus();
+    const key = e => {
+      if (e.key === 'Escape' && !exporting) onClose();
+      if (e.key === 'Tab') {
+        const nodes = [...document.querySelectorAll('[role="dialog"] button, [role="dialog"] a')].filter(n => !n.disabled);
+        if (!nodes.length) return;
+        if (e.shiftKey && document.activeElement === nodes[0]) { e.preventDefault(); nodes.at(-1).focus(); }
+        else if (!e.shiftKey && document.activeElement === nodes.at(-1)) { e.preventDefault(); nodes[0].focus(); }
       }
+    };
+    document.addEventListener('keydown', key);
+    return () => { document.removeEventListener('keydown', key); previous?.focus(); };
+  }, [isOpen, exporting, onClose]);
+  useEffect(() => {
+    if (downloadRef.current) URL.revokeObjectURL(downloadRef.current);
+    downloadRef.current = null;
+    // This reset synchronizes the download with the changed project.
+    // eslint-disable-next-line react/set-state-in-effect
+    setDownload(null); setError('');
+  }, [scenes, aspectRatio, currentTrack, filmTrack, captions, projectName, characters, accent]);
+  if (!isOpen) return null;
+  let type, unsupported;
+  try { type = chooseRecordingType(); } catch (error) { unsupported = error.message; }
+  const duration = filmDuration(scenes), storyboards = scenes.filter(s => !s.generatedVideoUrl && !s.videoFile).length;
+  const start = async () => {
+    if (exporting || exactExport === null) return;
+    setExporting(true); onBusy(true); setProgress(0); setError('');
+    if (downloadRef.current) URL.revokeObjectURL(downloadRef.current);
+    downloadRef.current = null; setDownload(null);
+    abort.current = new AbortController();
+    await exportUnifiedFilm({ scenes, aspectRatio, currentTrack: filmTrack, captions, characters, accent, exactExport, signal: abort.current.signal, onProgress: setProgress,
+      onComplete: ({ downloadUrl, extension }) => {
+        // Control characters and reserved filename characters are intentionally removed.
+        // eslint-disable-next-line no-control-regex
+        const filename = (projectName.replace(/[<>:"/\\|?*\x00-\x1F]/g, '_').trim() || 'Filme') + '_MASTER.' + extension;
+        downloadRef.current = downloadUrl; setDownload({ url: downloadUrl, filename });
+        const a = document.createElement('a'); a.href = downloadUrl; a.download = filename;
+        document.body.appendChild(a); a.click(); a.remove();
+        onNotify('Filme exportado. Download iniciado.', 'success');
+      },
+      onError: message => { setError(message); onNotify(message, 'error'); }
     });
+    setExporting(false); onBusy(false); abort.current = null;
   };
-
-  return (
-    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
-      <div className="bg-[#12151c] border border-slate-700/80 rounded-3xl max-w-lg w-full shadow-2xl relative overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-        {/* Glow ambient accent */}
-        <div className="absolute -top-20 -left-20 w-52 h-52 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
-
-        {/* Modal Header */}
-        <div className="flex items-center justify-between p-5 border-b border-slate-800">
-          <div className="flex items-center gap-2.5">
-            <div className="p-2 rounded-xl bg-amber-500/10 text-amber-400 border border-amber-500/20">
-              <Film className="w-5 h-5" />
-            </div>
-            <div>
-              <h3 className="text-base font-bold text-white flex items-center gap-2">
-                Exportação Master do Filme
-              </h3>
-              <p className="text-xs text-slate-400">
-                Consolidação cronológica e muxing de áudio/vídeo
-              </p>
-            </div>
-          </div>
-
-          <button
-            onClick={onClose}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-
-        {/* Modal Body: Project Specifications */}
-        <div className="p-5 space-y-4 text-xs">
-          <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 space-y-3">
-            <h4 className="text-xs font-bold text-slate-300 uppercase tracking-wider mb-1 flex items-center gap-2">
-              <ShieldCheck className="w-4 h-4 text-emerald-400" />
-              Especificações Técnicas de Saída
-            </h4>
-
-            <div className="grid grid-cols-2 gap-3 text-slate-300 font-mono">
-              <div className="bg-slate-950/70 p-2.5 rounded-xl border border-slate-800/80">
-                <span className="text-[10px] text-slate-400 block mb-0.5">Projeto:</span>
-                <span className="font-bold text-white truncate block">{projectName}</span>
-              </div>
-
-              <div className="bg-slate-950/70 p-2.5 rounded-xl border border-slate-800/80">
-                <span className="text-[10px] text-slate-400 block mb-0.5">Resolução Master:</span>
-                <span className="font-bold text-amber-400">{resolutionText}</span>
-              </div>
-
-              <div className="bg-slate-950/70 p-2.5 rounded-xl border border-slate-800/80">
-                <span className="text-[10px] text-slate-400 block mb-0.5">Cenas Prontas:</span>
-                <span className="font-bold text-emerald-400">{readyScenesCount} / {scenes.length} tomadas</span>
-              </div>
-
-              <div className="bg-slate-950/70 p-2.5 rounded-xl border border-slate-800/80">
-                <span className="text-[10px] text-slate-400 block mb-0.5">Duração Consolidada:</span>
-                <span className="font-bold text-white">{totalDuration} segundos</span>
-              </div>
-
-              <div className="bg-slate-950/70 p-2.5 rounded-xl border border-slate-800/80">
-                <span className="text-[10px] text-slate-400 block mb-0.5">Codec de Vídeo:</span>
-                <span className="font-bold text-cyan-400">H.264 High Profile / MP4</span>
-              </div>
-
-              <div className="bg-slate-950/70 p-2.5 rounded-xl border border-slate-800/80">
-                <span className="text-[10px] text-slate-400 block mb-0.5">Codec de Áudio:</span>
-                <span className="font-bold text-orange-400">AAC Estéreo 320kbps (48kHz)</span>
-              </div>
-            </div>
-
-            <div className="flex items-center justify-between text-[11px] text-slate-400 pt-1 border-t border-slate-800/60">
-              <span className="flex items-center gap-1.5">
-                <Music className="w-3.5 h-3.5 text-amber-400" />
-                Trilha: {currentTrack?.name || 'Sintetizador Master'}
-              </span>
-              <span className="font-mono text-slate-300">
-                Tamanho Estimado: ~{estimatedFileSize} MB
-              </span>
-            </div>
-          </div>
-
-          {/* Export Progress Bar if exporting */}
-          {isExporting && (
-            <div className="bg-slate-900/90 border border-amber-500/40 rounded-2xl p-4 space-y-2">
-              <div className="flex items-center justify-between text-xs">
-                <span className="text-amber-300 font-semibold flex items-center gap-2">
-                  <Sparkles className="w-4 h-4 animate-spin" />
-                  Renderizando e codificando arquivo MP4...
-                </span>
-                <span className="font-mono text-white font-bold">{exportProgress}%</span>
-              </div>
-
-              <div className="w-full h-2 bg-slate-950 rounded-full overflow-hidden border border-slate-800">
-                <div
-                  className="h-full bg-gradient-to-r from-amber-500 to-emerald-500 transition-all duration-150"
-                  style={{ width: `${exportProgress}%` }}
-                />
-              </div>
-              <p className="text-[11px] text-slate-400 text-center pt-1 font-mono">
-                Gravando quadros cinematográficos e mixando stream de áudio sincronizado...
-              </p>
-            </div>
-          )}
-
-          {/* Success Download Link if already finished */}
-          {downloadReadyUrl && !isExporting && (
-            <div className="bg-emerald-500/10 border border-emerald-500/40 rounded-2xl p-4 flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <CheckCircle2 className="w-5 h-5 text-emerald-400" />
-                <div>
-                  <p className="font-bold text-white text-xs">Filme pronto para download!</p>
-                  <p className="text-[11px] text-emerald-300/80">O download já foi iniciado automaticamente pelo navegador.</p>
-                </div>
-              </div>
-
-              <a
-                href={downloadReadyUrl}
-                download={`${projectName.replace(/\s+/g, '_')}_MASTER.mp4`}
-                className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-black font-bold text-xs flex items-center gap-1 shadow-md"
-              >
-                <Download className="w-3.5 h-3.5" />
-                Baixar Novamente
-              </a>
-            </div>
-          )}
-        </div>
-
-        {/* Modal Footer */}
-        <div className="p-5 border-t border-slate-800 flex items-center justify-end gap-3 bg-slate-950/40">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs transition-colors"
-          >
-            Fechar
-          </button>
-
-          <button
-            type="button"
-            disabled={isExporting}
-            onClick={handleStartExport}
-            className="px-6 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-black font-extrabold text-xs uppercase tracking-wider flex items-center gap-2 shadow-lg shadow-amber-500/20 active:scale-95 disabled:opacity-50 transition-all cursor-pointer"
-          >
-            <Download className="w-4 h-4 stroke-[2.5]" />
-            <span>{isExporting ? 'Processando...' : 'DOWNLOAD FILM (.MP4)'}</span>
-          </button>
-        </div>
+  return <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+    <div role="dialog" aria-modal="true" aria-labelledby="export-title" className="bg-[#12151c] border border-slate-700 rounded-2xl max-w-lg w-full p-5 space-y-4 max-h-[90vh] overflow-auto">
+      <div className="flex items-center justify-between"><h2 id="export-title" className="font-bold">Exportar filme</h2><button ref={closeButton} aria-label="Fechar exportação" disabled={exporting} onClick={onClose} className="p-2"><X size={18} /></button></div>
+      <dl className="grid grid-cols-2 gap-3 text-xs">
+        <dt className="text-slate-400">Projeto</dt><dd>{projectName}</dd>
+        <dt className="text-slate-400">Resolução</dt><dd>{aspectRatio === '16:9' ? '1920 × 1080' : '1080 × 1920'} · {exactExport ? '30 fps' : 'até 30 fps'}</dd>
+        <dt className="text-slate-400">Formato de saída</dt><dd>{exactExport === null ? 'Verificando codificador…' : exactExport ? 'MP4 • H.264 / AAC • finalização FFmpeg' : type?.mimeType || 'Indisponível'}</dd>
+        <dt className="text-slate-400">Duração</dt><dd>{duration.toFixed(1)} segundos · {scenes.length} cenas</dd>
+        <dt className="text-slate-400">Música de fundo</dt><dd>{currentTrack?.name || 'Sem música'} · repetição até o fim</dd>
+        <dt className="text-slate-400">Vozes e legendas</dt><dd>Narração e falas na montagem · {captions?.style ? captions.cues.length + ' blocos de legenda' : 'sem legendas'}</dd>
+      </dl>
+      {scenes.some(s => s.needsRegeneration) && <p className="text-xs text-amber-300">Há clipes anteriores às últimas alterações. Gere novamente para aplicá-las ao vídeo.</p>}
+      {storyboards > 0 && <p className="text-xs text-amber-300">{storyboards} cena(s) sem clipe serão exportadas como storyboard animado com texto e referências locais. Gere no Veo ou importe os clipes para exportar o filme com vídeo.</p>}
+      <p className="text-xs text-slate-400">Gravação em tempo real: mantenha esta aba visível por aproximadamente {Math.ceil(duration)} segundos, mais o tempo de finalização. Música, narração e falas são misturadas; as legendas ficam gravadas no vídeo. {exactExport ? 'O FFmpeg finaliza o MP4 com a duração da montagem e 30 fps.' : 'Sem FFmpeg, duração e FPS dependem do navegador; o formato pode ser MP4 ou WebM.'}</p>
+      {exporting && <div role="status"><progress aria-label="Progresso da exportação" value={progress} max="100" className="w-full accent-amber-500" /><p className="text-xs">{progress}% {progress >= 95 ? '· Finalizando MP4…' : ''}</p></div>}
+      {(error || unsupported) && <p role="alert" className="text-xs text-red-300">{error || unsupported}</p>}
+      {download && <a className="block text-sm text-emerald-300 underline" href={download.url} download={download.filename}>Baixar novamente: {download.filename}</a>}
+      <div className="flex justify-end gap-3">
+        {exporting ? <button className="text-xs text-slate-300" onClick={() => abort.current?.abort()}>Cancelar exportação</button> : <button onClick={onClose} className="text-xs text-slate-300">Fechar</button>}
+        <button disabled={exporting || exactExport === null || !!unsupported || !scenes.length} onClick={start} className="px-4 py-2 rounded-lg bg-amber-500 text-black font-bold text-xs flex gap-2 disabled:opacity-40"><Download size={16} />Exportar .{exactExport ? 'mp4' : type?.extension || 'vídeo'}</button>
       </div>
     </div>
-  );
+  </div>;
 }

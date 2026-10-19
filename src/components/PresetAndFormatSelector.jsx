@@ -10,7 +10,7 @@ export default function PresetAndFormatSelector({
   aspectRatio,
   onChangeAspectRatio
 }) {
-  const currentPreset = VIDEO_PRESETS.find(p => p.id === selectedPresetId) || VIDEO_PRESETS[0];
+  const currentPreset = VIDEO_PRESETS.find(p => p.id === selectedPresetId);
 
   return (
     <div className="bg-[#12151c] border border-slate-800/80 rounded-2xl p-4 lg:p-5 shadow-xl relative overflow-hidden">
@@ -128,7 +128,7 @@ export default function PresetAndFormatSelector({
             <div className="truncate">
               <span className="text-slate-300 font-medium">Prompt Base Injetado: </span>
               <span className="font-mono text-[11px] text-amber-400/90">
-                {isFreeform ? "Nenhum (Prompt Limpo do Roteiro)" : currentPreset.stylePrompt}
+                {isFreeform ? "Nenhum (Prompt Limpo do Roteiro)" : currentPreset?.stylePrompt}
               </span>
             </div>
           </div>
@@ -195,7 +195,7 @@ export default function PresetAndFormatSelector({
 
           <div className="mt-3 pt-2.5 border-t border-slate-800/80 flex items-center justify-between text-[11px] text-slate-400">
             <span>Renderizador:</span>
-            <span className="font-mono text-emerald-400 font-semibold">Veo 2 / Omni Engine</span>
+            <span className="font-mono text-emerald-400 font-semibold">Veo + Omni Flash / montagem local</span>
           </div>
         </div>
       </div>
