@@ -1,4 +1,16 @@
-# Flow Studio — roteiro, Google Veo, Omni Flash e montagem local
+# Flow Studio — roteiro, Google Veo, Omni Flash e montagem
+
+## Publicação na Vercel
+
+O projeto inclui a função Node `api/handler.js` e `vercel.json`, que direciona `/api/*` à função. Faça deploy da raiz do repositório, com build `npm run build` e saída `dist`. Cadastre `GEMINI_API_KEY`, `ELEVENLABS_API_KEY` e, opcionalmente, `TYPESAFE_API_KEY` como segredos do ambiente Production. Depois publique um novo deploy; alterações de variáveis não modificam deploys anteriores. Nunca use prefixo `VITE_` para as chaves.
+
+Na Vercel, o catálogo e a geração de voz usam a API do servidor. O MP3 volta ao navegador como dados de áudio, com tempos de legenda; o limite é de 1.500 caracteres por fala. As imagens de referência têm limite de 1 MB. Isso evita depender de arquivos temporários entre funções e respeita os limites de payload da hospedagem.
+
+Veo mantém o processamento no Google e retorna a mesma operação para consulta. Omni usa uma chamada síncrona de até 265 segundos; ultrapassar esse prazo não cancela necessariamente o pedido no Google e não provoca reenvio automático. O processamento do arquivo é consultado depois. Lipsync mantém o processamento na ElevenLabs. Os vídeos passam por um proxy de streaming na mesma origem, com suporte a Range e links criptografados válidos por 12 horas. Nenhuma chave aparece no link. Os arquivos do provedor também podem expirar. Baixe os resultados durante a sessão.
+
+A Vercel não executa a finalização FFmpeg desta versão. A montagem, as vozes e as legendas são exportadas pelo navegador em MP4 ou WebM, dependendo do suporte; duração e FPS variam com o navegador. O servidor local continua oferecendo a finalização FFmpeg com duração e FPS exatos. Não é necessário contratar armazenamento adicional para este fluxo; ele não oferece biblioteca persistente de projetos.
+
+Não há autenticação de usuários nesta versão. Restrição de origem não substitui autenticação: quem acessar o site público pode usar as rotas de geração e consumir as cotas da conta. Configure limites nos provedores e proteção de acesso apropriada ao uso antes de disponibilizar o site a terceiros.
 
 Aplicação React 19 + Vite, com servidor Node.js para proteger as chaves e integrar Google Veo e Gemini Omni Flash pela Gemini API.
 

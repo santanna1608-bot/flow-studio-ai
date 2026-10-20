@@ -33,7 +33,13 @@ export function buildVeoRequest(input) {
   }
   return { instances: [instance], parameters: { aspectRatio: input.aspectRatio, durationSeconds: 8, resolution: '1080p' } };
 }
-async function body(req) {
+export async function body(req) {
+  // Vercel's Node runtime may already have parsed the request body.
+  if (req.body !== undefined) {
+    const parsed = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('JSON inválido.');
+    return parsed;
+  }
   let size = 0;
   const chunks = [];
   for await (const chunk of req) {
@@ -43,7 +49,8 @@ async function body(req) {
   }
   try { return JSON.parse(Buffer.concat(chunks).toString()); } catch { throw new Error('JSON inválido.'); }
 }
-async function google(path, options = {}, provider = 'Veo', timeout = 60_000) {
+export async function google(path, options = {}, provider = 'Veo', timeout = 60_000) {
+  if (!googleKey()) throw new Error('Configure GEMINI_API_KEY nas variáveis de ambiente do servidor.');
   const response = await fetch(`${BASE}/${path}`, { ...options, headers: { 'Content-Type': 'application/json', 'x-goog-api-key': googleKey(), ...options.headers }, signal: AbortSignal.timeout(timeout) });
   const result = await response.json();
   if (!response.ok) {

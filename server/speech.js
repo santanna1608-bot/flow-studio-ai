@@ -46,14 +46,18 @@ export async function avatarStatus(id, directory) {
   await mkdir(directory, { recursive: true }); await writeFile(destination, bytes);
   return { done: true, videoUrl };
 }
-export async function generateSpeech(input, directory) {
-  if (typeof input.text !== 'string' || !input.text.trim() || input.text.length > 5000) throw new Error('Informe uma fala de até 5.000 caracteres.');
+export async function createSpeech(input, limit = 5000) {
+  if (typeof input.text !== 'string' || !input.text.trim() || input.text.length > limit) throw new Error(`Informe uma fala de até ${limit.toLocaleString('pt-BR')} caracteres.`);
   if (!/^[a-zA-Z0-9_-]{1,100}$/.test(input.voiceId || '')) throw new Error('Selecione uma voz.');
   const data = await eleven('text-to-speech/' + input.voiceId + '/with-timestamps?output_format=mp3_44100_128', { method: 'POST', body: JSON.stringify({ text: input.text.trim(), model_id: 'eleven_multilingual_v2' }) });
   if (!data.audio_base64) throw new Error('ElevenLabs não retornou áudio.');
   const bytes = Buffer.from(data.audio_base64, 'base64');
   if (!bytes.length || bytes.length > 25 * 1024 * 1024) throw new Error('Áudio retornado inválido.');
+  return { bytes, cues: groupWords(alignmentWords(data.normalized_alignment || data.alignment)) };
+}
+export async function generateSpeech(input, directory) {
+  const { bytes, cues } = await createSpeech(input);
   const id = createHash('sha256').update(randomUUID()).digest('hex');
   await mkdir(directory, { recursive: true }); await writeFile(resolve(directory, id + '.mp3'), bytes);
-  return { audioUrl: '/api/media/' + id + '.mp3', cues: groupWords(alignmentWords(data.normalized_alignment || data.alignment)) };
+  return { audioUrl: '/api/media/' + id + '.mp3', cues };
 }

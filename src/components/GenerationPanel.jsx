@@ -38,6 +38,7 @@ export default function GenerationPanel({ scenes, onUpdateScenes, isRendering, s
         update(scene.id, { status: 'rendering', error: null });
         setMessage('Cena ' + scene.shotNumber + ': enviando ao ' + engine + '…');
         const character = characters.find(c => c.tag === scene.characterTag);
+        if (!scene.operationName && config?.maxReferenceBytes && (character?.avatarUrl?.split(',')[1]?.length || 0) * .75 > config.maxReferenceBytes) throw new Error('Nesta hospedagem, use uma imagem de referência de até 1 MB.');
         const prompt = [scene.prompt, scene.cameraMovement && 'Camera: ' + scene.cameraMovement, preset?.stylePrompt, character && 'Character ' + character.tag + ': ' + character.outfitPrompt].filter(Boolean).join('\n');
         let operationName = scene.operationName;
         if (!operationName) {
