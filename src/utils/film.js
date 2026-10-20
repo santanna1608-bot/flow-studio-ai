@@ -1,6 +1,7 @@
 import { drawCaptions } from './captions.js';
 export const sceneDuration = s => Math.max(1, Number(s.duration) || 5);
 export const filmDuration = scenes => scenes.reduce((sum, s) => sum + sceneDuration(s), 0);
+export const clipPlaybackTime = (localTime, duration) => Math.max(0, Math.min(localTime, Math.max(0, duration - 0.04)));
 export function locateScene(scenes, time) {
   let start = 0;
   for (let index = 0; index < scenes.length; index++) {

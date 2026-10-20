@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Play, Pause, SkipBack, SkipForward, Maximize, Repeat2, Download } from 'lucide-react';
-import { drawFrame, filmDuration, locateScene, prepareVisuals } from '../utils/film';
+import { drawFrame, filmDuration, locateScene, prepareVisuals, clipPlaybackTime } from '../utils/film';
 
 const formatTime = seconds => Math.floor(seconds / 60).toString().padStart(2, '0') + ':' + Math.floor(seconds % 60).toString().padStart(2, '0');
 export default function MasterPlayer({ scenes, aspectRatio, isPlaying, onTogglePlay, currentTime, onSeek, onOpenExport, characters, accent, captions, onNotify, suspended }) {
@@ -37,7 +37,7 @@ export default function MasterPlayer({ scenes, aspectRatio, isPlaying, onToggleP
         const media = visuals.current?.assets.get(scene?.id);
         if (activeMedia !== media) { activeMedia?.pause?.(); activeMedia = media; }
         if (media?.tagName === 'VIDEO') {
-          const time = Math.min(localTime, Math.max(0, media.duration - 0.04));
+          const time = clipPlaybackTime(localTime, media.duration);
           if (Math.abs(media.currentTime - time) > (state.isPlaying ? 0.25 : 0.04)) media.currentTime = time;
           if (state.isPlaying && media.paused && !media.ended) media.play().catch(() => {});
           if (!state.isPlaying && !media.paused) media.pause();

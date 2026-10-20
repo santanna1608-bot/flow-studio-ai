@@ -63,7 +63,7 @@ export default function GenerationPanel({ scenes, onUpdateScenes, isRendering, s
           }
           if (result.done) {
             const actualDuration = await videoDuration(result.videoUrl);
-            update(scene.id, { status: 'ready', progress: 100, generatedVideoUrl: result.videoUrl, generatedProvider: targetProvider, duration: Math.min(scene.duration, actualDuration), sourceDuration: actualDuration, lipsynced: false, videoFile: null, operationName: null, operationProvider: null, generatedAspectRatio: aspectRatio, needsRegeneration: false }); break; }
+            update(scene.id, { status: 'ready', progress: 100, generatedVideoUrl: result.videoUrl, generatedProvider: targetProvider, sourceDuration: actualDuration, lipsynced: false, videoFile: null, operationName: null, operationProvider: null, generatedAspectRatio: aspectRatio, needsRegeneration: false }); break; }
           if (Date.now() > deadline) throw new Error(engine + ' ainda não concluiu. Use Retomar para consultar a mesma operação sem enviar outro pedido.');
           await wait(10000, abort.signal);
         }
@@ -88,7 +88,7 @@ export default function GenerationPanel({ scenes, onUpdateScenes, isRendering, s
         video.src = url;
       });
       if (!Number.isFinite(video.duration) || video.duration <= 0) throw new Error('Duração de vídeo inválida.');
-      update(scene.id, { videoFile: file, generatedVideoUrl: null, operationName: null, status: 'ready', progress: 100, duration: video.duration, sourceDuration: video.duration, lipsynced: false, generatedProvider: null, operationProvider: null, error: null, needsRegeneration: false });
+      update(scene.id, { videoFile: file, generatedVideoUrl: null, operationName: null, status: 'ready', progress: 100, sourceDuration: video.duration, lipsynced: false, generatedProvider: null, operationProvider: null, error: null, needsRegeneration: false });
       onNotify('Clipe importado e salvo no projeto.', 'success');
     } catch (error) { onNotify(error.message, 'error'); }
     finally { video.removeAttribute('src'); video.load(); URL.revokeObjectURL(url); }
@@ -114,9 +114,10 @@ export default function GenerationPanel({ scenes, onUpdateScenes, isRendering, s
       <span className="text-slate-400">{provider === 'omni' ? config?.omniModel : config?.model}</span>
     </label>
     <p className="text-xs text-slate-400">{provider === 'omni'
-      ? 'Omni Flash cria um clipe a partir do prompt e da referência local. Pedimos Full HD e a duração da cena; a duração final é definida pelo modelo, e a montagem é ajustada ao clipe recebido.'
+      ? 'Omni Flash cria um clipe a partir do prompt e da referência local. Pedimos Full HD e até 8 segundos; a duração do clipe é definida pelo modelo.'
       : 'Veo gera clipes Full HD de 8 segundos; a montagem usa a duração da cena.'} Ambos usam GEMINI_API_KEY e créditos da sua conta Google. O acesso a cada modelo depende da sua conta e região. Referências enviadas por upload acompanham o pedido; URLs externas ficam apenas no cadastro.</p>
     {!config && !configError && <p className="text-xs text-slate-400" role="status">Verificando configuração dos modelos…</p>}
+    <p className="text-xs text-slate-400">A montagem mantém a duração definida no roteiro. Se o clipe for mais curto, o último quadro permanece até o fim da cena; a narração e as legendas continuam.</p>
     {configError && <p className="text-xs text-amber-300" role="alert">{configError}</p>}
     {config && !config[selected.configuration] && <p className="text-xs text-amber-300" role="status">Configure GEMINI_API_KEY em .env.local e reinicie o servidor para habilitar Veo e Omni Flash. Você já pode importar clipes e exportar storyboards.</p>}
     <p role="status" className="text-xs text-slate-300">{message}</p>
@@ -125,6 +126,7 @@ export default function GenerationPanel({ scenes, onUpdateScenes, isRendering, s
         <p className="text-xs font-bold">#{scene.shotNumber} {scene.title}</p>
         <p className="text-xs text-slate-400">{scene.status === 'rendering' ? 'Processando no Google…' : scene.generatedVideoUrl || scene.videoFile ? 'Vídeo disponível' : 'Storyboard • sem vídeo'} · {scene.duration}s</p>
         {scene.generatedProvider && <p className="text-xs text-cyan-300">Gerado com {VIDEO_PROVIDERS[scene.generatedProvider]?.label || scene.generatedProvider}</p>}
+        {scene.sourceDuration && scene.duration > scene.sourceDuration && <p className="text-xs text-amber-300">Clipe de {scene.sourceDuration.toFixed(1)}s: o último quadro permanece por mais {(scene.duration - scene.sourceDuration).toFixed(1)}s para completar a cena. Narração e legendas continuam.</p>}
         {scene.needsRegeneration && <p className="text-xs text-amber-300">O clipe anterior foi mantido. Gere novamente para aplicar as alterações.</p>}
         {scene.error && <p role="alert" className="text-xs text-red-300">{scene.error}</p>}
         <div className="flex flex-wrap gap-2">

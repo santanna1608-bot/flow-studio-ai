@@ -1,13 +1,10 @@
 import { useState, useRef } from 'react';
 import { CAPTION_STYLES, parseSrt, toSrt } from '../utils/captions';
 import { videoDuration } from '../utils/videoProviders';
+import { requestJson as api } from '../utils/api';
 
 const field = 'w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-sm';
 const button = 'px-3 py-2 rounded-lg bg-slate-700 text-xs disabled:opacity-40';
-async function api(path, body) {
-  const response = await fetch(path, body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {});
-  const data = await response.json(); if (!response.ok) throw new Error(data.error || 'Falha ao acessar ElevenLabs.'); return data;
-}
 function download(blob, name) { const url = URL.createObjectURL(blob), a = document.createElement('a'); a.href = url; a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); }
 function VoiceForm({ value, onChange, voices, busy, onGenerate, label }) {
   const filtered = voices.filter(v => !value.gender || v.gender.toLowerCase() === value.gender);
@@ -54,7 +51,7 @@ export default function SpeechCaptionStudio({ scenes, onUpdateScenes, characters
     const deadline = Date.now() + 20 * 60000;
     while (Date.now() < deadline && polling.current) {
       const data = await api('/api/lipsync/status?id=' + encodeURIComponent(id));
-      if (data.done) { const length = await videoDuration(data.videoUrl); updateScene(scene.id, { generatedVideoUrl: data.videoUrl, videoFile: null, status: 'ready', duration: length, sourceDuration: length, lipsynced: true, avatarOperation: null, needsRegeneration: false, generatedProvider: 'elevenlabs', operationName: null }); onNotify('Personagem com lipsync adicionado à cena.', 'success'); return; }
+      if (data.done) { const length = await videoDuration(data.videoUrl); updateScene(scene.id, { generatedVideoUrl: data.videoUrl, videoFile: null, status: 'ready', sourceDuration: length, lipsynced: true, avatarOperation: null, needsRegeneration: false, generatedProvider: 'elevenlabs', operationName: null }); onNotify('Personagem com lipsync adicionado à cena.', 'success'); return; }
       await new Promise(resolve => setTimeout(resolve, 10000));
     }
     throw new Error('O lipsync ainda está processando. Use Retomar lipsync para consultar o mesmo pedido.');

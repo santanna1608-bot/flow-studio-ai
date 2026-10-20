@@ -347,14 +347,14 @@ export default function ScriptBreakdownEditor({
                   <div className="flex items-center justify-between gap-2 bg-slate-950/60 px-2 py-1.5 rounded-lg border border-slate-800/80">
                     <span className="text-[10px] text-slate-400">Duração:</span>
                     <input
-                      type="range"
+                      type="number"
                       aria-label={'Duração da cena ' + scene.shotNumber}
                       min="1"
-                      max={Math.max(1, scene.sourceDuration || (scene.generatedVideoUrl || scene.videoFile ? scene.duration : 60))}
+                      max={Math.max(60, scene.duration || 0, scene.sourceDuration || 0)}
                       step="0.1"
                       value={scene.duration || 8}
-                      onChange={(e) => handleSceneFieldChange(scene.id, 'duration', parseFloat(e.target.value))}
-                      className="w-16 h-1 bg-slate-800 rounded-lg cursor-pointer accent-amber-500"
+                      onChange={(e) => { const value = e.target.valueAsNumber; if (Number.isFinite(value)) handleSceneFieldChange(scene.id, 'duration', Math.max(1, Math.min(3600, value))); }}
+                      className="w-20 bg-slate-800 rounded-lg px-2 py-1 text-xs text-white"
                     />
                     <span className="font-mono text-xs font-bold text-amber-400 min-w-[20px] text-right">
                       {scene.duration || 5}s

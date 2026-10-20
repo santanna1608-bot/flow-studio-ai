@@ -83,7 +83,7 @@ No painel **5. Vídeos — Veo e Omni Flash**, escolha **Google Veo** ou **Gemin
 
 Omni Flash usa a mesma GEMINI_API_KEY já configurada. Não é necessário cadastrar outra chave. O modelo padrão é gemini-omni-1.1-flash; opcionalmente, configure OMNI_MODEL em .env.local. A disponibilidade depende do acesso da sua conta ao modelo e da região.
 
-A integração usa a Interactions API do Google, com solicitação de vídeo em 1080p e entrega por URI. A duração é pedida no prompt, conforme o contrato Omni; a montagem é limitada à duração real do clipe recebido. O app suporta a resposta REST em steps/model_output e a resposta com output_video. Também aceita vídeo inline caso o serviço o retorne.
+A integração usa a Interactions API do Google, com solicitação de vídeo em 1080p e entrega por URI. Pedimos até 8 segundos por clipe, conforme o contrato do modelo. A montagem preserva a duração definida no roteiro: se o clipe for mais curto, mantém o último quadro até o fim da cena, enquanto narração e legendas continuam. Assim, seis cenas de 10 segundos somam 60 segundos, mesmo com clipes de 8 segundos. O app suporta a resposta REST em steps/model_output e a resposta com output_video. Também aceita vídeo inline caso o serviço o retorne.
 
 O servidor acompanha o pedido e consulta o arquivo até o estado ACTIVE antes de baixar o MP4. Os clipes e o andamento do arquivo ficam salvos localmente; retomar não cria outro pedido. Se o servidor reiniciar enquanto a solicitação inicial síncrona ainda estiver em andamento, o app avisa que o pedido pode continuar no Google, em vez de reenviá-lo automaticamente.
 

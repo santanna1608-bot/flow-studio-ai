@@ -13,10 +13,11 @@ export async function eleven(path, options = {}) {
     const messages = { 401: 'Chave ElevenLabs inválida ou sem permissão.', 403: 'Sem acesso a este recurso ElevenLabs. Confira o plano e as permissões da chave.', 429: 'Limite ElevenLabs atingido. Aguarde antes de tentar novamente.' };
     throw new Error(messages[response.status] || `ElevenLabs rejeitou o pedido (HTTP ${response.status}). Confira o texto, a voz e seus créditos.`);
   }
-  return response.json();
+  try { return await response.json(); } catch { throw new Error('ElevenLabs retornou uma resposta inválida. Tente novamente mais tarde.'); }
 }
 export async function listVoices(cursor) {
   const data = await eleven('v2/voices?page_size=100' + (cursor ? '&next_page_token=' + encodeURIComponent(cursor) : ''));
+  if (!Array.isArray(data?.voices)) throw new Error('ElevenLabs não retornou um catálogo de vozes válido. Tente novamente.');
   return { voices: (data.voices || []).map(v => ({ id: v.voice_id, name: v.name, gender: v.labels?.gender || '', accent: v.labels?.accent || '', description: v.description || '' })), next: data.next_page_token || null };
 }
 export async function generateAvatar(input, directory) {

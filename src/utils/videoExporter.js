@@ -1,4 +1,4 @@
-import { drawFrame, filmDuration, locateScene, prepareVisuals } from './film.js';
+import { drawFrame, filmDuration, locateScene, prepareVisuals, clipPlaybackTime } from './film.js';
 import { prepareAudioBuffer } from './audioEngine.js';
 export function chooseRecordingType(Recorder = globalThis.MediaRecorder) {
   if (!Recorder) throw new Error('Este navegador não suporta gravação. Use Chrome ou Edge atualizado.');
@@ -54,7 +54,7 @@ export async function exportUnifiedFilm({ scenes, aspectRatio, currentTrack, cap
         const { scene, localTime } = locateScene(scenes, time), media = visuals.assets.get(scene.id);
         if (activeMedia !== media) { activeMedia?.pause?.(); activeMedia = media; }
         if (media?.tagName === 'VIDEO') {
-          const target = Math.min(localTime, Math.max(0, media.duration - 0.04));
+          const target = clipPlaybackTime(localTime, media.duration);
           if (Math.abs(media.currentTime - target) > 0.25) media.currentTime = target;
           if (media.paused && !media.ended) media.play().catch(() => fail(new Error('Não foi possível reproduzir um clipe durante a exportação.')));
         }
